@@ -1,16 +1,20 @@
-import java.util.*;
-
+import com.google.protobuf.MapEntry;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-
 import scala.Tuple2;
+import scala.Tuple3;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class G021HW1 {
     public static void main(String[] args) {
         //Commandline check
-        if(args.length != 5){
+        if (args.length != 5) {
             throw new IllegalArgumentException("USAGE: filepath D M K L");
         }
 
@@ -66,9 +70,17 @@ public class G021HW1 {
 
             long stopwatch_startMR = System.currentTimeMillis();
             //Executes MRApproxOutliers with parameters inputPoints, D,M and K. The execution will print the information specified above.
-            Methods.MRApproxOutliers(inputPoints, D, M, K);
+            Methods.MRApproxOutliersBISCA1(inputPoints, D, M, K);
             long stopwatch_stopMR = System.currentTimeMillis();
             long exec_time = stopwatch_stopMR - stopwatch_startMR;
+            //Prints MRApproxOutliers' running time. Again the stopwatch variable saves the current time when method starts and finishes
+            System.out.println("Running time for MRApproxOutliers: " + exec_time + " millisec");
+
+            stopwatch_startMR = System.currentTimeMillis();
+            //Executes MRApproxOutliers with parameters inputPoints, D,M and K. The execution will print the information specified above.
+            Methods.MRApproxOutliersBISCA2(inputPoints, D, M, K);
+            stopwatch_stopMR = System.currentTimeMillis();
+            exec_time = stopwatch_stopMR - stopwatch_startMR;
             //Prints MRApproxOutliers' running time. Again the stopwatch variable saves the current time when method starts and finishes
             System.out.println("Running time for MRApproxOutliers: " + exec_time + " millisec");
 
@@ -77,144 +89,173 @@ public class G021HW1 {
     }
 }
 
-class Methods{
-    private static float eucDistance(Tuple2<Float,Float> p1, Tuple2<Float,Float> p2){
+class Methods {
+    private static float eucDistance(Tuple2<Float, Float> p1, Tuple2<Float, Float> p2) {
         float x_diff = p1._1 - p2._1;
         float y_diff = p1._2 - p2._2;
 
-        return (float) Math.sqrt(Math.pow(x_diff,2)+Math.pow(y_diff,2));
+        return (float) Math.sqrt(Math.pow(x_diff, 2) + Math.pow(y_diff, 2));
     }
 
     private static Tuple2<Integer, Integer> determineCell(Tuple2<Float, Float> point, float D) {
-        float lambda = (float) (D/(2*Math.sqrt(2)));
+        float lambda = (float) (D / (2 * Math.sqrt(2)));
 
-        int i = (int) Math.floor(point._1/lambda);
-        int j = (int) Math.floor(point._2/lambda);
+        int i = (int) Math.floor(point._1 / lambda);
+        int j = (int) Math.floor(point._2 / lambda);
 
         return new Tuple2<>(i, j);
     }
 
-    public static void ExactOutliers(List<Tuple2<Float,Float>> points, float D, int M, int K){
+    public static void ExactOutliers(List<Tuple2<Float, Float>> points, float D, int M, int K) {
 
-        ArrayList<Tuple2<Integer,Integer>> outliersPoints = new ArrayList<>();
+        ArrayList<Tuple2<Integer, Integer>> outliersPoints = new ArrayList<>();
 
-        for(int i=0;i<points.size();i++){
+        for (int i = 0; i < points.size(); i++) {
             int dNeighborCountI = 0;
             for (Tuple2<Float, Float> point : points) {
                 //if(i==j) continue;
                 if (eucDistance(points.get(i), point) <= D) dNeighborCountI++;
             }
-            if(dNeighborCountI <= M)  outliersPoints.add(new Tuple2<>(i,dNeighborCountI));
+            if (dNeighborCountI <= M) outliersPoints.add(new Tuple2<>(i, dNeighborCountI));
         }
-        
+
         //Sorting the list of outliers points by dNeighborCount(|B(p,D)|)
         outliersPoints.sort((e1, e2) -> e1._2().compareTo(e2._2));
 
-        System.out.println("Number of ("+D+","+M+")-outliers: "+outliersPoints.size());
-        for(int i = 0; i< (Math.min(outliersPoints.size(), K)); i++){
+        System.out.println("Number of (" + D + "," + M + ")-outliers: " + outliersPoints.size());
+        for (int i = 0; i < (Math.min(outliersPoints.size(), K)); i++) {
             //The first min(size of outliersPoints list,K) outliers points
             System.out.println(points.get(outliersPoints.get(i)._1));
         }
     }
 
-    public static void MRApproxOutliers(JavaPairRDD<Float, Float> points, float D, int M, int K){
+    public static void MRApproxOutliersBISCA1(JavaPairRDD<Float, Float> points, float D, int M, int K) {
+        //step a
+        float lambda = (float) (D / (2 * Math.sqrt(2)));
 
-        final int[] xCentralCellMax = {Integer.MIN_VALUE};
-        final int[] yCentralCellMax = {Integer.MIN_VALUE};
-
-        /* step A
-        - Map phase: (x,y) (coordinates of point) -> emit ( (i,j), 1 ) (key: identifier of cell)
-        - Reduce phase: for each cell (i,j), L_ij = { values of pairs with key (i,j) } = {1,1,...} ->
-            emit ( (i,j), |L_ij| ); |L_ij| = number of points in cell (i,j)
-         */
-        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points
-            .flatMapToPair(
-                    (pair) -> {
-                        ArrayList<Tuple2<Tuple2<Integer, Integer>, Integer>> pointsPairs = new ArrayList<>();
-
-                        Tuple2<Integer, Integer> cell = determineCell(pair, D);
-                        if (cell._1>xCentralCellMax[0]) xCentralCellMax[0]=cell._1;
-                        if (cell._2>yCentralCellMax[0]) yCentralCellMax[0]=cell._2;
-                        pointsPairs.add(new Tuple2<>(cell, 1));
-
-                        return pointsPairs.iterator();
-                    }
-            )
-            .reduceByKey(Integer::sum);
-
-        /* step B
-        - Map phase: ( (i,j), |L_ij| ) -> emit ( ( (h,k), |L_hk| ), ( (i,j), |L_ij| ) ); (h,k) is the central cell
-            of one of the 7x7 grids R_7(h,k) to which (i,j) belongs
-        - Reduce phase: for every central cell (h,k), L_hk={ pairs ( (i,j), |L_ij| ) belonging to R_7(h,k) } -> emit
-            ( ( (h,k), |L_hk| ), ( |N_3(i,k)|, |N_7(i,k)| ) )
-         */
-        Map<Tuple2<Integer, Integer>, Integer> cells = cellCount.collectAsMap();
-        JavaPairRDD<Tuple2<Tuple2<Integer, Integer>, Integer>, Tuple2<Integer, Integer>> regionCounts = cellCount.
-            flatMapToPair(
+        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points.flatMapToPair(
                 (pair) -> {
-                    ArrayList<Tuple2<Tuple2<Tuple2<Integer, Integer>, Integer>, Tuple2<Tuple2<Integer, Integer>, Integer>>>
-                        regionPairs = new ArrayList<>();
+                    ArrayList<Tuple2<Tuple2<Integer, Integer>, Integer>> pairsList = new ArrayList<>();
+                    pairsList.add(new Tuple2<>(new Tuple2<>((int) Math.floor(pair._1 / lambda), (int) Math.floor(pair._2 / lambda)), 1));
 
-                    Tuple2<Integer, Integer> cell = pair._1;
-                    // compute all 7x7 grid to which cell belongs
-                    for (int i=-3; i<4; i++) {
-                        for (int j=-3; j<4; j++) {
-                            int xCentralCell = cell._1+i;
-                            int yCentralCell = cell._2+j;
-                            Tuple2<Integer, Integer> centralCell = new Tuple2<>(xCentralCell, yCentralCell);
-                            // if the computed central cell is not present among cells's keys, skip it
-                            if (!cells.containsKey(centralCell)) continue;
-                            regionPairs.add(new Tuple2<>(new Tuple2<>(centralCell, cells.get(centralCell)), pair));
+                    return pairsList.iterator();
+                }
+        ).reduceByKey(Integer::sum);
+
+
+        //step b -- Semi iterative algorithm
+        Map<Tuple2<Integer, Integer>, Integer> tmpMap = cellCount.collectAsMap();
+        JavaPairRDD<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>> outliersPoint = cellCount.flatMapToPair(
+                (pair) -> {
+
+                    HashMap<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>> pairSizeN3N7 = new HashMap<>();
+                    pairSizeN3N7.put(pair._1, new Tuple3<>(pair._2, 0, 0));
+
+                    //Notice: this for count itself too
+                    for (int i = -3; i < 4; i++) {
+                        for (int j = -3; j < 4; j++) {
+                            if (tmpMap.get(new Tuple2<>(pair._1._1 + i, pair._1._2 + j)) != null) {
+                                int cellIJCount = tmpMap.get(new Tuple2<>(pair._1._1 + i, pair._1._2 + j));
+                                if ((i < -1 || i > 1) || (j < -1 || j > 1))
+                                    //In region C7
+                                    pairSizeN3N7.put(pair._1, new Tuple3<>(pair._2, pairSizeN3N7.get(pair._1)._2(), pairSizeN3N7.get(pair._1)._3() + cellIJCount));
+                                else
+                                    //In region C3
+                                    pairSizeN3N7.put(pair._1, new Tuple3<>(pair._2, pairSizeN3N7.get(pair._1)._2() + cellIJCount, pairSizeN3N7.get(pair._1)._3() + cellIJCount));
+                            }
                         }
                     }
 
-                    return regionPairs.iterator();
-                }
-            )
-            .groupByKey()
-            .flatMapToPair(
-                (pair) -> {
-                    ArrayList<Tuple2<Tuple2<Tuple2<Integer, Integer>, Integer>, Tuple2<Integer, Integer>>> regionNumbers =
-                            new ArrayList<>();
-
-                    Tuple2<Integer, Integer> centralCell = pair._1._1;
-                    int sum3 = 0;
-                    int sum7 = 0;
-
-                    for (Tuple2<Tuple2<Integer, Integer>, Integer> value : pair._2) {
-                        sum7 += value._2;
-
-                        /* if a cell and centralCell have a distance of {-1,0,1} on both components, then the cell also
-                        belongs to the 3x3 grid with centralCell in the middle */
-                        int xDistance = value._1._1 - centralCell._1;
-                        int yDistance = value._1._2 - centralCell._2;
-                        if (xDistance>=-1 && xDistance<=1 && yDistance>=-1 && yDistance<=1) sum3 += value._2;
+                    ArrayList<Tuple2<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>>> compPoints = new ArrayList<>();
+                    for (Map.Entry<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>> e : pairSizeN3N7.entrySet()) {
+                        compPoints.add(new Tuple2<>(e.getKey(), e.getValue()));
                     }
-
-                    regionNumbers.add(new Tuple2<>(pair._1, new Tuple2<>(sum3, sum7)));
-                    return regionNumbers.iterator();
+                    return compPoints.iterator();
                 }
-            );
-
-        Map<Tuple2<Tuple2<Integer, Integer>, Integer>, Tuple2<Integer, Integer>> results = regionCounts.collectAsMap();
-        int sureOutliers = 0, uncertains = 0;
-        for (Tuple2<Tuple2<Integer, Integer>, Integer> cell : results.keySet()) {
-            int pointsNumber = cell._2;
-            Tuple2<Integer, Integer> sizes = results.get(cell);
-            if (sizes._2 <= M) sureOutliers += pointsNumber;
-            else if (sizes._1 <= M) uncertains += pointsNumber;
-        }
-        System.out.println("Number of sure outliers = "+ sureOutliers);
-        System.out.println("Number of uncertain points = "+uncertains);
-
-        JavaPairRDD<Integer, Tuple2<Integer, Integer>> tmp = cellCount.mapToPair(
-                (pair) -> new Tuple2<>(pair._2, pair._1)
         );
-        tmp = tmp.sortByKey(true);
-        List<Tuple2<Integer, Tuple2<Integer, Integer>>> firstElements = tmp.take(K);
-        for (Tuple2<Integer, Tuple2<Integer, Integer>> element : firstElements) {
-            System.out.println("Cell: (" + element._2._1 + "," + element._2._2 + ")   Size = " + element._1);
+
+        List<Tuple2<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>>> finalList = outliersPoint.collect();
+        int outliers = 0, uncertains = 0;
+        for (Tuple2<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>> elem : finalList) {
+            if (elem._2._3() <= M) outliers += elem._2._1();
+            if (elem._2._2() <= M && elem._2._3() > M) uncertains += elem._2._1();
+        }
+        System.out.println("Number of sure outliers = " + outliers);
+        System.out.println("Number of uncertain points = " + uncertains);
+
+        JavaPairRDD<Integer, Tuple2<Integer, Integer>> ordercell = cellCount.flatMapToPair(
+                (pair) -> {
+                    ArrayList<Tuple2<Integer, Tuple2<Integer, Integer>>> pairsList = new ArrayList<>();
+                    pairsList.add(new Tuple2<>(pair._2, new Tuple2<>(pair._1._1(), pair._1._2())));
+
+                    return pairsList.iterator();
+                }
+        );
+
+        List<Tuple2<Integer, Tuple2<Integer, Integer>>> firstKElements = ordercell.sortByKey().take(K);
+        for (Tuple2<Integer, Tuple2<Integer, Integer>> e : firstKElements) {
+            System.out.println("Cell: " + e._2 + " Size=" + e._1);
+        }
+    }
+    public static void MRApproxOutliersBISCA2(JavaPairRDD<Float, Float> points, float D, int M, int K) {
+        //step a
+        float lambda = (float) (D / (2 * Math.sqrt(2)));
+
+        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points.flatMapToPair(
+                (pair) -> {
+                    ArrayList<Tuple2<Tuple2<Integer, Integer>, Integer>> pairsList = new ArrayList<>();
+                    pairsList.add(new Tuple2<>(new Tuple2<>((int) Math.floor(pair._1 / lambda), (int) Math.floor(pair._2 / lambda)), 1));
+
+                    return pairsList.iterator();
+                }
+        ).reduceByKey(Integer::sum);
+
+
+        //step b -- Iterative algorithm
+        Map<Tuple2<Integer, Integer>, Integer> tmpMap = cellCount.collectAsMap();
+        HashMap<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>> pairSizeN3N7 = new HashMap<>();
+
+        for(Map.Entry<Tuple2<Integer, Integer>, Integer> e : tmpMap.entrySet()){
+            Tuple2<Tuple2<Integer,Integer>,Integer> pair =  new Tuple2<>(e.getKey(),e.getValue());
+
+            pairSizeN3N7.put(pair._1, new Tuple3<>(pair._2, 0, 0));
+                    //Notice: this for count itself too
+                    for (int i = -3; i < 4; i++) {
+                        for (int j = -3; j < 4; j++) {
+                            if (tmpMap.get(new Tuple2<>(pair._1._1 + i, pair._1._2 + j)) != null) {
+                                int cellIJCount = tmpMap.get(new Tuple2<>(pair._1._1 + i, pair._1._2 + j));
+                                if ((i < -1 || i > 1) || (j < -1 || j > 1))
+                                    //In region C7
+                                    pairSizeN3N7.put(pair._1, new Tuple3<>(pair._2, pairSizeN3N7.get(pair._1)._2(), pairSizeN3N7.get(pair._1)._3() + cellIJCount));
+                                else
+                                    //In region C3
+                                    pairSizeN3N7.put(pair._1, new Tuple3<>(pair._2, pairSizeN3N7.get(pair._1)._2() + cellIJCount, pairSizeN3N7.get(pair._1)._3() + cellIJCount));
+                            }
+                        }
+                    }
         }
 
+        int outliers = 0, uncertains = 0;
+        for (Map.Entry<Tuple2<Integer, Integer>, Tuple3<Integer, Integer, Integer>> elem : pairSizeN3N7.entrySet()) {
+            if (elem.getValue()._3() <= M) outliers += elem.getValue()._1();
+            if (elem.getValue()._2() <= M && elem.getValue()._3() > M) uncertains += elem.getValue()._1();
+        }
+        System.out.println("Number of sure outliers = " + outliers);
+        System.out.println("Number of uncertain points = " + uncertains);
+
+        JavaPairRDD<Integer, Tuple2<Integer, Integer>> ordercell = cellCount.flatMapToPair(
+                (pair) -> {
+                    ArrayList<Tuple2<Integer, Tuple2<Integer, Integer>>> pairsList = new ArrayList<>();
+                    pairsList.add(new Tuple2<>(pair._2, new Tuple2<>(pair._1._1(), pair._1._2())));
+
+                    return pairsList.iterator();
+                }
+        );
+
+        List<Tuple2<Integer, Tuple2<Integer, Integer>>> firstKElements = ordercell.sortByKey().take(K);
+        for (Tuple2<Integer, Tuple2<Integer, Integer>> e : firstKElements) {
+            System.out.println("Cell: " + e._2 + " Size=" + e._1);
+        }
     }
+
 }

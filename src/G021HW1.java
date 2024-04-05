@@ -133,13 +133,8 @@ class Methods {
         //step a
         float lambda = (float) (D / (2 * Math.sqrt(2)));
 
-        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points.flatMapToPair(
-                (pair) -> {
-                    ArrayList<Tuple2<Tuple2<Integer, Integer>, Integer>> pairsList = new ArrayList<>();
-                    pairsList.add(new Tuple2<>(new Tuple2<>((int) Math.floor(pair._1 / lambda), (int) Math.floor(pair._2 / lambda)), 1));
-
-                    return pairsList.iterator();
-                }
+        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points.mapToPair(
+                (pair) -> new Tuple2<>(new Tuple2<>((int) Math.floor(pair._1 / lambda), (int) Math.floor(pair._2 / lambda)), 1)
         ).reduceByKey(Integer::sum);
 
 
@@ -183,13 +178,8 @@ class Methods {
         System.out.println("Number of sure outliers = " + outliers);
         System.out.println("Number of uncertain points = " + uncertains);
 
-        JavaPairRDD<Integer, Tuple2<Integer, Integer>> ordercell = cellCount.flatMapToPair(
-                (pair) -> {
-                    ArrayList<Tuple2<Integer, Tuple2<Integer, Integer>>> pairsList = new ArrayList<>();
-                    pairsList.add(new Tuple2<>(pair._2, new Tuple2<>(pair._1._1(), pair._1._2())));
-
-                    return pairsList.iterator();
-                }
+        JavaPairRDD<Integer, Tuple2<Integer, Integer>> ordercell = cellCount.mapToPair(
+                (pair) -> new Tuple2<>(pair._2, new Tuple2<>(pair._1._1(), pair._1._2()))
         );
 
         List<Tuple2<Integer, Tuple2<Integer, Integer>>> firstKElements = ordercell.sortByKey().take(K);
@@ -201,13 +191,8 @@ class Methods {
         //step a
         float lambda = (float) (D / (2 * Math.sqrt(2)));
 
-        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points.flatMapToPair(
-                (pair) -> {
-                    ArrayList<Tuple2<Tuple2<Integer, Integer>, Integer>> pairsList = new ArrayList<>();
-                    pairsList.add(new Tuple2<>(new Tuple2<>((int) Math.floor(pair._1 / lambda), (int) Math.floor(pair._2 / lambda)), 1));
-
-                    return pairsList.iterator();
-                }
+        JavaPairRDD<Tuple2<Integer, Integer>, Integer> cellCount = points.mapToPair(
+                (pair) -> new Tuple2<>(new Tuple2<>((int) Math.floor(pair._1 / lambda), (int) Math.floor(pair._2 / lambda)), 1)
         ).reduceByKey(Integer::sum);
 
 
@@ -243,13 +228,8 @@ class Methods {
         System.out.println("Number of sure outliers = " + outliers);
         System.out.println("Number of uncertain points = " + uncertains);
 
-        JavaPairRDD<Integer, Tuple2<Integer, Integer>> ordercell = cellCount.flatMapToPair(
-                (pair) -> {
-                    ArrayList<Tuple2<Integer, Tuple2<Integer, Integer>>> pairsList = new ArrayList<>();
-                    pairsList.add(new Tuple2<>(pair._2, new Tuple2<>(pair._1._1(), pair._1._2())));
-
-                    return pairsList.iterator();
-                }
+        JavaPairRDD<Integer, Tuple2<Integer, Integer>> ordercell = cellCount.mapToPair(
+                (pair) -> new Tuple2<>(pair._2, new Tuple2<>(pair._1._1(), pair._1._2()))
         );
 
         List<Tuple2<Integer, Tuple2<Integer, Integer>>> firstKElements = ordercell.sortByKey().take(K);
